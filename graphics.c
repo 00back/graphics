@@ -1,3 +1,5 @@
+//graphics.c
+#include "graphics.h"
 #include <linux/fb.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -11,12 +13,30 @@ static const char* FB_PATH = "/dev/fb0";
 static uint8_t* framebuffer;
 static struct fb_var_screeninfo vinfo;
 static struct fb_fix_screeninfo finfo;
+graphics_buffer_t graphics_create_buffer(uint32_t buffer_width, uint32_t buffer_height) {
+	graphics_buffer_t buffer;
+	buffer.pixels = malloc(sizeof(uint32_t) * buffer_width * buffer_height);
+	buffer.width = buffer_width;
+	buffer.height = buffer_height;
+	return buffer;
+}
+void graphics_destroy_buffer(graphics_buffer_t buffer) {
+	for(uint32_t y = 0; y < buffer.height; ++y) {
+		for(uint32_t x = 0; x < buffer.width; ++x) {
+			free(&buffer.pixels[y * buffer.width + x]);
+		}
+	}
+	free(buffer.pixels);
+}
 void graphics_putpixel(uint32_t x, uint32_t y, uint32_t color) {
 	long y_offset = y + vinfo.yoffset;
 	long x_offset = x + vinfo.xoffset;
 	int bytes_per_pixel = vinfo.bits_per_pixel / 8;
 	long offset = y_offset * finfo.line_length + x_offset * bytes_per_pixel;
 	*(uint32_t *)(framebuffer + offset) = color;
+}
+void graphics_putpixel_buffer(uint32_t x, uint32_t y, uint32_t color, graphics_buffer_t buffer) {
+	buffer.pixels[y * buffer.width + x] = color;
 }
 static void draw_line_low(uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, uint32_t color) {
 	int dx = x1 - x0;
@@ -80,6 +100,32 @@ void graphics_draw_line(uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, uint
 		}
 	}
 }
+void graphics_clear(uint32_t color) {
+	int bytes_per_pixel = vinfo.bits_per_pixel / 8;
+	for(uint32_t y = 0; y < vinfo.yres; ++y) {
+		for(uint32_t x = 0; x < vinfo.xres; ++x) {
+			long offset = (y + vinfo.yoffset) * finfo.line_length + (x + vinfo.xoffset) * bytes_per_pixel;
+			*(uint32_t *)(framebuffer + offset) = color;
+		}
+	}
+}
+void graphics_clear_buffer(uint32_t color, graphics_buffer_t buffer) {
+	for(uint32_t y = 0; y < buffer.height; ++y) {
+		for(uint32_t x = 0; x < buffer.width; ++x) {
+			buffer.pixels[y * buffer.width + x] = color;
+		}
+	}
+}
+void graphics_present_buffer(graphics_buffer_t buffer) {
+	if(!framebuffer || buffer.width > vinfo.xres || buffer.height > vinfo.yres) {
+		return;
+	}
+	int bytes_per_pixel = vinfo.bits_per_pixel / 8;
+	for(uint32_t y = 0; y < buffer.height; ++y) {
+		long offset = (y + vinfo.yoffset) * finfo.line_length + vinfo.xoffset * bytes_per_pixel;
+		memcpy(framebuffer + offset, buffer.pixels + y * buffer.width, buffer.width * sizeof(uint32_t));
+	}
+}
 void graphics_init(void) {
 	int fb = open(FB_PATH, O_RDWR);
 	if(fb < 0) {
@@ -101,14 +147,5 @@ void graphics_init(void) {
 		perror("Error mmapping framebuffer");
 		close(fb);
 		return;
-	}
-}
-void graphics_clear(uint32_t color) {
-	int bytes_per_pixel = vinfo.bits_per_pixel / 8;
-	for(uint32_t y = 0; y < vinfo.yres; ++y) {
-		for(uint32_t x = 0; x < vinfo.xres; ++x) {
-			long offset = (y + vinfo.yoffset) * finfo.line_length + (x + vinfo.xoffset) * bytes_per_pixel;
-			*(uint32_t *)(framebuffer + offset) = color;
-		}
 	}
 }
