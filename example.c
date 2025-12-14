@@ -2,13 +2,68 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-typedef struct {
-    int width;
-    int height;
-    uint32_t* pixels;
-} Image;
+#include <unistd.h>
+void stretch_walk(graphics_buffer_t source, graphics_buffer_t target) {
+	static int walk_x = 0;
+	static int direction = 1;
+	if(walk_x == 0) {
+		direction = 1;
+	}
+	if(walk_x == source.width - 1) {
+		direction = -1;
+	}
+	graphics_buffer_t temp_buffer = graphics_create_buffer(source.width, source.height);
+	for(int y = 0; y < source.height; y++) {
+		float normalized_y = (float)y / (float)source.height;
+		uint32_t scaled_width = (float)source.width * normalized_y;
+		for(int x = 0; x < scaled_width; x++) {
+			uint32_t offset_x = walk_x * (1 - normalized_y);
+			float normalized_x = (float)x / (float)scaled_width;
+			uint32_t interpolated_x = source.width * normalized_x;
+			uint32_t interpolated_y = source.height * normalized_y;
+			graphics_putpixel_buffer(x + offset_x, y, source.pixels[interpolated_y * source.height + interpolated_x], temp_buffer);
+		}
+	}
+	for(int y = 0; y < temp_buffer.height; y++) {
+		for(int x = 0; x < temp_buffer.width; x++) {
+			target.pixels[y * temp_buffer.height + x] = temp_buffer.pixels[y * temp_buffer.height + x];
+		}
+	}
+	walk_x += direction;
+	graphics_destroy_buffer(temp_buffer);
+}
+void shift_x(graphics_buffer_t buffer) {
+	for(int y = 0; y < buffer.height; y++) {
+		for(int x = 0; x < buffer.width; x++) {
+			uint32_t index = y * buffer.height + x;
+			uint32_t new_x = x + 1;
+			uint32_t temp = buffer.pixels[index];
+			if(new_x >= buffer.width) {
+				new_x = 0;
+			}
+			uint32_t new_index = y * buffer.height + new_x;
+			buffer.pixels[index] = buffer.pixels[new_index];
+			buffer.pixels[new_index] = temp;
+		}
+	}
+}
+void shift_y(graphics_buffer_t buffer) {
+	for(int y = 0; y < buffer.height; y++) {
+		for(int x = 0; x < buffer.width; x++) {
+			uint32_t index = y * buffer.height + x;
+			uint32_t new_y = y + 1;
+			uint32_t temp = buffer.pixels[index];
+			if(new_y >= buffer.height) {
+				new_y = 0;
+			}
+			uint32_t new_index = new_y * buffer.height + x;
+			buffer.pixels[index] = buffer.pixels[new_index];
+			buffer.pixels[new_index] = temp;
+		}
+	}
+}
 // --- Simple BMP loader ---
-Image loadBMP(const char* filename) {
+graphics_buffer_t loadBMP(const char* filename) {
     FILE* file = fopen(filename, "rb");
     if(!file) { printf("Failed to open BMP\n"); exit(1); }
     uint8_t header[54];
@@ -27,42 +82,26 @@ Image loadBMP(const char* filename) {
             uint8_t b = data[i+0];
             uint8_t g = data[i+1];
             uint8_t r = data[i+2];
-            pixels[y*width + x] = (r<<16) | (g<<8) | b;
+            pixels[(width*height) - (y*width + (width - x))] = (r<<16) | (g<<8) | b;
         }
     }
     free(data);
-    Image tex = {width, height, pixels};
+    graphics_buffer_t tex = {width, height, pixels};
     return tex;
 }
 
 int main(void){
-	int width = 1920;
-	int height = 1080;
-	int position_x = 0;
-	int running = 1;
-	Image image = loadBMP("image.bmp");
+	graphics_buffer_t image = loadBMP("image.bmp");
+	graphics_buffer_t frame = graphics_create_buffer(image.width, image.height);
 	graphics_init();
-	graphics_buffer_t frame = graphics_create_buffer(width, height);
+	int running = 1;
 	while(running) {
-		for(int y = height; y >= 0; y--) {
-			float normalized_y = (float)y / (float)height;
-			float scaled_width = (width - 1) - normalized_y * (float)width;
-			for(int x = 0; x < scaled_width; x++) {
-				int x_offset = position_x * normalized_y;
-				float normalized_x = (float)x / (float)scaled_width;
-				int image_x = image.width * normalized_x;
-				int image_y = image.height * normalized_y;
-				graphics_putpixel_buffer(x_offset + x, y, image.pixels[(image.width * image.height) - (image_y * image.height + (image.width - 1 - image_x))], frame);
-			}
-		}
-		position_x++;
-		if(position_x >= width) {
-			position_x = 0;
-		}
+		shift_y(image);
+		shift_x(image);
+		stretch_walk(image, frame);
 		graphics_present_buffer(frame);
-		graphics_clear_buffer(0x000000, frame);
+		usleep(10000);
 	}
-	graphics_destroy_buffer(frame);
 	return 0;
 }
 

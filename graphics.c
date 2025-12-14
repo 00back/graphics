@@ -15,17 +15,12 @@ static struct fb_var_screeninfo vinfo;
 static struct fb_fix_screeninfo finfo;
 graphics_buffer_t graphics_create_buffer(uint32_t buffer_width, uint32_t buffer_height) {
 	graphics_buffer_t buffer;
-	buffer.pixels = malloc(sizeof(uint32_t) * buffer_width * buffer_height);
+	buffer.pixels = calloc(buffer_width * buffer_height, sizeof(uint32_t));
 	buffer.width = buffer_width;
 	buffer.height = buffer_height;
 	return buffer;
 }
 void graphics_destroy_buffer(graphics_buffer_t buffer) {
-	for(uint32_t y = 0; y < buffer.height; ++y) {
-		for(uint32_t x = 0; x < buffer.width; ++x) {
-			free(&buffer.pixels[y * buffer.width + x]);
-		}
-	}
 	free(buffer.pixels);
 }
 void graphics_putpixel(uint32_t x, uint32_t y, uint32_t color) {
